@@ -9,6 +9,7 @@ const STORE_NAME = 'keys';
 const KEY_ALIAS = 'master_aes_key';
 
 let cachedDecryptedKey: string | null = null;
+let cachedNineRouterKey: string | null = null;
 let masterCryptoKeyPromise: Promise<CryptoKey> | null = null;
 
 // Get or create persistent CryptoKey in IndexedDB
@@ -114,11 +115,9 @@ export async function encryptApiKey(plainKey: string): Promise<string> {
     const ivB64 = bufferToBase64(iv.buffer);
     const cipherB64 = bufferToBase64(ciphertextBuffer);
 
-    cachedDecryptedKey = trimmed;
     return `enc:v1:${ivB64}:${cipherB64}`;
   } catch (err) {
     console.warn('Failed to encrypt key via Web Crypto API, using direct memory cache', err);
-    cachedDecryptedKey = trimmed;
     return trimmed;
   }
 }
@@ -131,7 +130,6 @@ export async function decryptApiKey(cipherText: string): Promise<string> {
   const trimmed = cipherText.trim();
 
   if (!trimmed.startsWith('enc:v1:')) {
-    cachedDecryptedKey = trimmed;
     return trimmed;
   }
 
@@ -153,7 +151,6 @@ export async function decryptApiKey(cipherText: string): Promise<string> {
     );
 
     const decryptedKey = new TextDecoder().decode(decryptedBuffer);
-    cachedDecryptedKey = decryptedKey;
     return decryptedKey;
   } catch (err) {
     console.error('Failed to decrypt API key from localStorage:', err);
@@ -166,6 +163,10 @@ export async function decryptApiKey(cipherText: string): Promise<string> {
  */
 export function getCachedApiKey(): string | null {
   return cachedDecryptedKey;
+}
+
+export function getCachedNineRouterApiKey(): string | null {
+  return cachedNineRouterKey;
 }
 
 /**
@@ -196,6 +197,26 @@ export function removeSecureApiKey(): void {
   }
 }
 
+export async function saveNineRouterApiKey(plainKey: string): Promise<void> {
+  const trimmed = plainKey.trim();
+  if (!trimmed) {
+    removeNineRouterApiKey();
+    return;
+  }
+  cachedNineRouterKey = trimmed;
+  const encrypted = await encryptApiKey(trimmed);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('user_9router_api_key', encrypted);
+  }
+}
+
+export function removeNineRouterApiKey(): void {
+  cachedNineRouterKey = null;
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('user_9router_api_key');
+  }
+}
+
 /**
  * Loads and decrypts API key from localStorage into memory cache.
  * Automatically upgrades legacy plain-text keys to encrypted keys in localStorage.
@@ -217,7 +238,30 @@ export async function loadSecureApiKey(): Promise<string> {
     return trimmed;
   }
 
-  return await decryptApiKey(trimmed);
+  const decrypted = await decryptApiKey(trimmed);
+  cachedDecryptedKey = decrypted;
+  return decrypted;
+}
+
+export async function loadNineRouterApiKey(): Promise<string> {
+  if (typeof window === 'undefined') return '';
+
+  const rawSaved = localStorage.getItem('user_9router_api_key');
+  if (!rawSaved || !rawSaved.trim()) {
+    cachedNineRouterKey = null;
+    return '';
+  }
+
+  const trimmed = rawSaved.trim();
+  if (!trimmed.startsWith('enc:v1:')) {
+    cachedNineRouterKey = trimmed;
+    saveNineRouterApiKey(trimmed).catch((err) => console.warn('Auto-upgrade 9router key encryption error:', err));
+    return trimmed;
+  }
+
+  const decrypted = await decryptApiKey(trimmed);
+  cachedNineRouterKey = decrypted;
+  return decrypted;
 }
 
 /**
@@ -227,6 +271,15 @@ export function hasSecureApiKey(): boolean {
   if (cachedDecryptedKey && cachedDecryptedKey.trim()) return true;
   if (typeof window !== 'undefined') {
     const raw = localStorage.getItem('user_openrouter_api_key') || localStorage.getItem('user_gemini_api_key');
+    return !!(raw && raw.trim());
+  }
+  return false;
+}
+
+export function hasNineRouterApiKey(): boolean {
+  if (cachedNineRouterKey && cachedNineRouterKey.trim()) return true;
+  if (typeof window !== 'undefined') {
+    const raw = localStorage.getItem('user_9router_api_key');
     return !!(raw && raw.trim());
   }
   return false;

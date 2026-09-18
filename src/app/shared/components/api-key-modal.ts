@@ -2,8 +2,8 @@ import { Component, Output, EventEmitter, signal, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatIconModule } from '@angular/material/icon';
 import { ToastService } from '../../core/toast.service';
-import { loadSecureApiKey, saveSecureApiKey, removeSecureApiKey } from '../../core/crypto-storage.util';
-import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomModels, saveCustomModels, getCustomEconomyModels, saveCustomEconomyModels, getQualityTemperature, saveQualityTemperature, ReasoningEffortOption, getReasoningEffort, saveReasoningEffort } from '../../core/openrouter';
+import { loadNineRouterApiKey, loadSecureApiKey, removeNineRouterApiKey, removeSecureApiKey, saveNineRouterApiKey, saveSecureApiKey } from '../../core/crypto-storage.util';
+import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomModels, getNineRouterBaseUrl, saveNineRouterBaseUrl, saveCustomModels, getCustomEconomyModels, saveCustomEconomyModels, getQualityTemperature, saveQualityTemperature, ReasoningEffortOption, getReasoningEffort, isValidNineRouterBaseUrl, saveReasoningEffort } from '../../core/openrouter';
 
 @Component({
   selector: 'app-api-key-modal',
@@ -18,7 +18,7 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
               <mat-icon>vpn_key</mat-icon>
             </div>
             <div>
-              <h3 class="text-lg font-bold text-zinc-900 tracking-tight">Cấu hình OpenRouter API Key & Models</h3>
+                <h3 class="text-lg font-bold text-zinc-900 tracking-tight">Cấu hình AI Providers & Models</h3>
             </div>
           </div>
           <button (click)="triggerClose()" class="w-8 h-8 flex items-center justify-center text-zinc-400 hover:text-zinc-700 transition-colors rounded-full hover:bg-zinc-200 cursor-pointer border-none bg-transparent focus:outline-none">
@@ -40,6 +40,10 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
             @if (hasSavedKey()) {
               <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
                 Đang dùng OpenRouter Key của bạn
+              </span>
+            } @else if (nineRouterApiKey.trim()) {
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-100">
+                Đang dùng 9router Key của bạn
               </span>
             } @else {
               <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-750 border border-indigo-100">
@@ -81,6 +85,35 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
             </div>
           </div>
 
+          <div class="space-y-3 rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+            <div>
+              <div class="text-xs font-bold uppercase tracking-widest text-violet-800">9ROUTER (OPENAI-COMPATIBLE)</div>
+              <p class="mt-1 text-[11px] leading-relaxed text-zinc-600">Nhập Base URL và API Key riêng của 9router. Các model chọn nhà cung cấp 9router sẽ gọi endpoint này.</p>
+            </div>
+            <div class="space-y-1.5">
+              <label for="nineRouterBaseUrl" class="block text-xs font-bold text-zinc-500 uppercase tracking-widest">BASE URL</label>
+              <input id="nineRouterBaseUrl"
+                     type="url"
+                     [(ngModel)]="nineRouterBaseUrl"
+                     placeholder="https://example.com/v1"
+                     class="w-full rounded-xl border border-violet-200 bg-white px-4 py-2.5 font-mono text-sm text-zinc-800 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
+            </div>
+            <div class="space-y-1.5">
+              <label for="nineRouterApiKey" class="block text-xs font-bold text-zinc-500 uppercase tracking-widest">9ROUTER API KEY</label>
+              <div class="relative flex items-center">
+                <input id="nineRouterApiKey"
+                       [type]="showKey() ? 'text' : 'password'"
+                       [(ngModel)]="nineRouterApiKey"
+                       placeholder="API key của 9router"
+                       (keydown.enter)="saveKey()"
+                       class="w-full rounded-xl border border-violet-200 bg-white py-2.5 pl-4 pr-11 font-mono text-sm text-zinc-800 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500" />
+                <button (click)="toggleShowKey()" type="button" class="absolute right-3 cursor-pointer border-none bg-transparent p-1 text-zinc-450 hover:text-zinc-650">
+                  <mat-icon class="text-[20px]">{{ showKey() ? 'visibility_off' : 'visibility' }}</mat-icon>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Divider -->
           <div class="h-px bg-zinc-200 my-2"></div>
 
@@ -91,7 +124,7 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
                 DANH SÁCH MÔ HÌNH AI CHẤT LƯỢNG CAO (TỐI ĐA 9 MODEL)
               </div>
               <p class="text-[11px] text-zinc-500 mt-0.5">
-                Nhập mã model từ OpenRouter (VD: <code class="bg-zinc-100 px-1 py-0.5 rounded text-zinc-700">~google/gemini-flash-latest</code>) dùng cho dịch thuật chính thức, phân tích đại từ & từ khó. Mã model ở cột trái cần nhập tuyệt đối chính xác, nhãn tên ở cột phải tùy ý bạn đặt miễn sao dễ hiểu cho chính bạn. Bạn có thể thêm, sửa, xóa, điều chỉnh thứ tự danh sách các model AI bên dưới. Danh sách các model AI có thể tham khảo ở đây: <a href="https://openrouter.ai/discover" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">https://openrouter.ai/discover</a>
+                Nhập mã model dùng cho dịch thuật chính thức, phân tích đại từ & từ khó; chọn OpenRouter hoặc 9router cho từng model. Mã model ở cột trái cần nhập tuyệt đối chính xác, nhãn tên ở cột phải tùy ý bạn đặt miễn sao dễ hiểu cho chính bạn. Danh sách model OpenRouter có thể tham khảo ở <a href="https://openrouter.ai/discover" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">https://openrouter.ai/discover</a>.
               </p>
             </div>
 
@@ -227,13 +260,19 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
                       <mat-icon class="!text-[22px] !w-5.5 !h-5.5">keyboard_arrow_down</mat-icon>
                     </button>
                   </div>
-                  <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input 
                       type="text" 
                       [(ngModel)]="model.id" 
                       placeholder="Mã model (vd: ~google/gemini-flash-latest)" 
                       class="px-2.5 py-1.5 border border-zinc-300 rounded-lg text-xs font-mono text-zinc-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
+                    <select aria-label="Nhà cung cấp model"
+                            [(ngModel)]="model.provider"
+                            class="px-2.5 py-1.5 border border-zinc-300 rounded-lg text-xs text-zinc-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                      <option value="openrouter">OpenRouter</option>
+                      <option value="9router">9router</option>
+                    </select>
                     <input 
                       type="text" 
                       [(ngModel)]="model.name" 
@@ -306,13 +345,19 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
                       <mat-icon class="!text-[22px] !w-5.5 !h-5.5">keyboard_arrow_down</mat-icon>
                     </button>
                   </div>
-                  <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <input 
                       type="text" 
                       [(ngModel)]="model.id" 
                       placeholder="Mã model (vd: google/gemini-3.5-flash-lite)" 
                       class="px-2.5 py-1.5 border border-amber-200 rounded-lg text-xs font-mono text-zinc-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
+                    <select aria-label="Nhà cung cấp model"
+                            [(ngModel)]="model.provider"
+                            class="px-2.5 py-1.5 border border-amber-200 rounded-lg text-xs text-zinc-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500">
+                      <option value="openrouter">OpenRouter</option>
+                      <option value="9router">9router</option>
+                    </select>
                     <input 
                       type="text" 
                       [(ngModel)]="model.name" 
@@ -348,10 +393,10 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
         <!-- Actions -->
         <div class="p-4 bg-zinc-50 border-t border-zinc-100 flex flex-wrap justify-between items-center gap-2 shrink-0">
           <div class="flex items-center gap-2">
-            @if (hasSavedKey()) {
+            @if (hasSavedKey() || nineRouterApiKey.trim()) {
               <button (click)="deleteKey()" 
                       class="px-3.5 py-1.5 bg-white border border-red-200 text-red-600 font-medium hover:bg-red-50 hover:border-red-300 rounded-lg transition-all shadow-sm focus:ring-2 focus:ring-red-100 focus:outline-none text-xs cursor-pointer">
-                Xóa Key cá nhân
+                Xóa các Key cá nhân
               </button>
             }
             <button type="button" (click)="resetDefaultModels()" 
@@ -366,9 +411,9 @@ import { CustomModel, DEFAULT_CUSTOM_MODELS, DEFAULT_ECONOMY_MODELS, getCustomMo
               Hủy
             </button>
             <button (click)="saveKey()" 
-                    [disabled]="!apiKey.trim()"
-                    [class.opacity-50]="!apiKey.trim()"
-                    [class.cursor-not-allowed]="!apiKey.trim()"
+                    [disabled]="!hasAnyProviderConfig()"
+                    [class.opacity-50]="!hasAnyProviderConfig()"
+                    [class.cursor-not-allowed]="!hasAnyProviderConfig()"
                     class="px-4 py-1.5 bg-indigo-600 text-white font-medium hover:bg-indigo-700 rounded-lg shadow-sm transition-all focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-xs cursor-pointer border-none">
               Lưu cấu hình
             </button>
@@ -385,6 +430,8 @@ export class ApiKeyModal {
   isClosing = signal(false);
   showKey = signal(false);
   apiKey = '';
+  nineRouterBaseUrl = '';
+  nineRouterApiKey = '';
   hasSavedKey = signal(false);
   models = signal<CustomModel[]>([]);
   economyModels = signal<CustomModel[]>([]);
@@ -408,7 +455,7 @@ export class ApiKeyModal {
 
   addModel() {
     if (this.models().length < 9) {
-      this.models.update(list => [...list, { id: '', name: '' }]);
+      this.models.update(list => [...list, { id: '', name: '', provider: 'openrouter' }]);
     }
   }
 
@@ -440,7 +487,7 @@ export class ApiKeyModal {
 
   addEconomyModel() {
     if (this.economyModels().length < 3) {
-      this.economyModels.update(list => [...list, { id: '', name: '' }]);
+      this.economyModels.update(list => [...list, { id: '', name: '', provider: 'openrouter' }]);
     }
   }
 
@@ -501,7 +548,13 @@ export class ApiKeyModal {
       } else {
         this.apiKey = '';
       }
+      this.nineRouterBaseUrl = getNineRouterBaseUrl();
+      this.nineRouterApiKey = await loadNineRouterApiKey();
     }
+  }
+
+  hasAnyProviderConfig() {
+    return !!(this.apiKey.trim() || this.nineRouterBaseUrl.trim() || this.nineRouterApiKey.trim());
   }
 
   toggleShowKey() {
@@ -516,22 +569,38 @@ export class ApiKeyModal {
   }
 
   async saveKey() {
-    const trimmed = this.apiKey.trim();
-    if (!trimmed) return;
+    const openRouterKey = this.apiKey.trim();
+    const nineRouterUrl = this.nineRouterBaseUrl.trim();
+    const nineRouterKey = this.nineRouterApiKey.trim();
+    if (!openRouterKey && !nineRouterUrl && !nineRouterKey) return;
     
-    if (!/^[a-zA-Z0-9_\-.:/]+$/.test(trimmed)) {
+    if (openRouterKey && !/^[a-zA-Z0-9_\-.:/]+$/.test(openRouterKey)) {
       this.toast.error('API Key không hợp lệ. Hãy đảm bảo bạn không dán nhầm chữ tiếng Việt có dấu, khoảng trắng hay ký tự đặc biệt.');
       return;
     }
 
+    if ((nineRouterUrl || nineRouterKey) && (!nineRouterUrl || !nineRouterKey)) {
+      this.toast.error('9router cần cả Base URL và API Key.');
+      return;
+    }
+
+    if (nineRouterUrl && !isValidNineRouterBaseUrl(nineRouterUrl)) {
+      this.toast.error('Base URL của 9router không hợp lệ. Hãy nhập URL bắt đầu bằng http:// hoặc https://.');
+      return;
+    }
+
     if (typeof window !== 'undefined') {
-      await saveSecureApiKey(trimmed);
+      if (openRouterKey) await saveSecureApiKey(openRouterKey);
+      if (nineRouterUrl && nineRouterKey) {
+        saveNineRouterBaseUrl(nineRouterUrl);
+        await saveNineRouterApiKey(nineRouterKey);
+      }
       saveCustomModels(this.models());
       saveCustomEconomyModels(this.economyModels());
       saveQualityTemperature(this.qualityTemperature());
       saveReasoningEffort(this.reasoningEffort());
       window.dispatchEvent(new Event('api-key-changed'));
-      this.toast.success('Đã lưu mã hóa an toàn OpenRouter API Key, Models, Temperature & Reasoning thành công!');
+      this.toast.success('Đã lưu cấu hình provider, API Key, Models, Temperature & Reasoning thành công!');
     }
     this.triggerClose();
   }
@@ -539,8 +608,10 @@ export class ApiKeyModal {
   deleteKey() {
     if (typeof window !== 'undefined') {
       removeSecureApiKey();
+      removeNineRouterApiKey();
+      saveNineRouterBaseUrl('');
       window.dispatchEvent(new Event('api-key-changed'));
-      this.toast.success('Xóa OpenRouter API Key cá nhân thành công.');
+      this.toast.success('Đã xóa API Key và cấu hình 9router cá nhân.');
     }
     this.triggerClose();
   }

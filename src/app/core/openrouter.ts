@@ -1,25 +1,66 @@
 import { Injectable } from '@angular/core';
 import { getEncoding, Tiktoken } from 'js-tiktoken';
-import { getCachedApiKey, loadSecureApiKey } from './crypto-storage.util';
+import { getCachedApiKey, getCachedNineRouterApiKey, loadNineRouterApiKey, loadSecureApiKey } from './crypto-storage.util';
+
+export type ModelProvider = 'openrouter' | '9router';
 
 export interface CustomModel {
   id: string;
   name: string;
+  provider: ModelProvider;
 }
 
 export const DEFAULT_CUSTOM_MODELS: CustomModel[] = [
-  { id: '~google/gemini-flash-latest', name: 'Google Gemini Flash Latest' },
-  { id: 'openai/gpt-5.6-luna', name: 'OpenAI GPT-5.6 Luna' },
-  { id: 'meta/muse-spark-1.3', name: 'Meta Muse Spark 1.3' },
-  { id: '~deepseek/deepseek-v4-flash-latest', name: 'DeepSeek V4 Flash Latest' },
-  { id: '~z-ai/glm-flash-latest', name: 'Z.ai GLM Flash Latest' }
+  { id: '~google/gemini-flash-latest', name: 'Google Gemini Flash Latest', provider: 'openrouter' },
+  { id: 'openai/gpt-5.6-luna', name: 'OpenAI GPT-5.6 Luna', provider: 'openrouter' },
+  { id: 'meta/muse-spark-1.3', name: 'Meta Muse Spark 1.3', provider: 'openrouter' },
+  { id: '~deepseek/deepseek-v4-flash-latest', name: 'DeepSeek V4 Flash Latest', provider: 'openrouter' },
+  { id: '~z-ai/glm-flash-latest', name: 'Z.ai GLM Flash Latest', provider: 'openrouter' }
 ];
 
 export const DEFAULT_ECONOMY_MODELS: CustomModel[] = [
-  { id: 'google/gemini-3.5-flash-lite', name: 'Google Gemini 3.5 Flash Lite (đa phương thức)' },
-  { id: '~z-ai/glm-flash-latest', name: 'Z.ai GLM Flash Latest (đa phương thức)' },
-  { id: '~deepseek/deepseek-v4-flash-latest', name: 'DeepSeek V4 Flash Latest' }
+  { id: 'google/gemini-3.5-flash-lite', name: 'Google Gemini 3.5 Flash Lite (đa phương thức)', provider: 'openrouter' },
+  { id: '~z-ai/glm-flash-latest', name: 'Z.ai GLM Flash Latest (đa phương thức)', provider: 'openrouter' },
+  { id: '~deepseek/deepseek-v4-flash-latest', name: 'DeepSeek V4 Flash Latest', provider: 'openrouter' }
 ];
+
+function normalizeModel(item: { id?: string; name?: string; provider?: unknown }): CustomModel {
+  const id = String(item.id || '').trim();
+  return {
+    id,
+    name: String(item.name || '').trim() || id,
+    provider: item.provider === '9router' ? '9router' : 'openrouter'
+  };
+}
+
+export function normalizeNineRouterBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
+}
+
+export function isValidNineRouterBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(normalizeNineRouterBaseUrl(value));
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function getNineRouterBaseUrl(): string {
+  if (typeof window === 'undefined') return '';
+  return normalizeNineRouterBaseUrl(localStorage.getItem('user_9router_base_url') || '');
+}
+
+export function saveNineRouterBaseUrl(value: string): void {
+  if (typeof window === 'undefined') return;
+  const normalized = normalizeNineRouterBaseUrl(value);
+  if (normalized) localStorage.setItem('user_9router_base_url', normalized);
+  else localStorage.removeItem('user_9router_base_url');
+}
+
+export function getProviderForModel(modelId: string): ModelProvider {
+  return [...getCustomModels(), ...getCustomEconomyModels()].find(model => model.id === modelId)?.provider || 'openrouter';
+}
 
 export function getCustomModels(): CustomModel[] {
   if (typeof window === 'undefined') return DEFAULT_CUSTOM_MODELS;
@@ -28,10 +69,7 @@ export function getCustomModels(): CustomModel[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.slice(0, 9).map((item: { id?: string; name?: string }) => ({
-          id: String(item.id || '').trim(),
-          name: String(item.name || '').trim() || String(item.id || '').trim()
-        })).filter(item => item.id.length > 0);
+        return parsed.slice(0, 9).map(normalizeModel).filter(item => item.id.length > 0);
       }
     }
   } catch {
@@ -42,10 +80,7 @@ export function getCustomModels(): CustomModel[] {
 
 export function saveCustomModels(models: CustomModel[]): void {
   if (typeof window === 'undefined') return;
-  const valid = models.slice(0, 9).map(m => ({
-    id: m.id.trim(),
-    name: m.name.trim() || m.id.trim()
-  })).filter(m => m.id.length > 0);
+  const valid = models.slice(0, 9).map(normalizeModel).filter(m => m.id.length > 0);
   
   localStorage.setItem('user_openrouter_models', JSON.stringify(valid));
   window.dispatchEvent(new Event('openrouter-models-changed'));
@@ -58,10 +93,7 @@ export function getCustomEconomyModels(): CustomModel[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.slice(0, 3).map((item: { id?: string; name?: string }) => ({
-          id: String(item.id || '').trim(),
-          name: String(item.name || '').trim() || String(item.id || '').trim()
-        })).filter(item => item.id.length > 0);
+        return parsed.slice(0, 3).map(normalizeModel).filter(item => item.id.length > 0);
       }
     }
   } catch {
@@ -72,10 +104,7 @@ export function getCustomEconomyModels(): CustomModel[] {
 
 export function saveCustomEconomyModels(models: CustomModel[]): void {
   if (typeof window === 'undefined') return;
-  const valid = models.slice(0, 3).map(m => ({
-    id: m.id.trim(),
-    name: m.name.trim() || m.id.trim()
-  })).filter(m => m.id.length > 0);
+  const valid = models.slice(0, 3).map(normalizeModel).filter(m => m.id.length > 0);
   
   localStorage.setItem('user_openrouter_economy_models', JSON.stringify(valid));
   window.dispatchEvent(new Event('openrouter-models-changed'));
@@ -134,24 +163,25 @@ export function isQuotaError(e: unknown): boolean {
 export function parseOpenRouterError(e: unknown): string {
   const msg = (e as Error)?.message || e?.toString() || '';
   const lower = msg.toLowerCase();
+  const providerName = lower.includes('9router') ? '9router' : 'OpenRouter';
 
   if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('invalid api key')) {
-    return 'Lỗi: OpenRouter API Key không hợp lệ hoặc bị từ chối. Vui lòng kiểm tra lại cấu hình Key.';
+    return `Lỗi: ${providerName} API Key không hợp lệ hoặc bị từ chối. Vui lòng kiểm tra lại cấu hình Key.`;
   }
   if (lower.includes('402') || lower.includes('insufficient_credits') || lower.includes('credit')) {
-    return 'Lỗi: Tài khoản OpenRouter của bạn đã hết số dư (Out of credits). Vui lòng nạp thêm credit trên OpenRouter.';
+    return `Lỗi: Tài khoản ${providerName} của bạn đã hết số dư (Out of credits). Vui lòng nạp thêm credit.`;
   }
   if (lower.includes('quota') || lower.includes('429') || lower.includes('rate limit')) {
     return 'Lỗi: Đã vượt quá giới hạn tần suất yêu cầu (Rate limit / Quota exceeded). Vui lòng thử lại sau giây lát.';
   }
   if (lower.includes('network') || lower.includes('fetch failed')) {
-    return 'Lỗi kết nối mạng: Không thể kết nối tới máy chủ OpenRouter. Vui lòng kiểm tra kết nối internet.';
+    return `Lỗi kết nối mạng: Không thể kết nối tới máy chủ ${providerName}. Vui lòng kiểm tra kết nối internet.`;
   }
   if (lower.includes('timeout')) {
-    return 'Lỗi: Quá thời gian chờ phản hồi từ OpenRouter (Timeout).';
+    return `Lỗi: Quá thời gian chờ phản hồi từ ${providerName} (Timeout).`;
   }
   if (lower.includes('overloaded') || lower.includes('503') || lower.includes('502') || lower.includes('500')) {
-    return 'Lỗi: Máy chủ AI hoặc OpenRouter đang quá tải, vui lòng thử lại sau giây lát.';
+    return `Lỗi: Máy chủ AI hoặc ${providerName} đang quá tải, vui lòng thử lại sau giây lát.`;
   }
 
   try {
@@ -159,14 +189,14 @@ export function parseOpenRouterError(e: unknown): string {
       const str = msg.substring(msg.indexOf('{'));
       const obj = JSON.parse(str);
       if (obj?.error?.message) {
-        return `Lỗi từ OpenRouter: ${obj.error.message}`;
+        return `Lỗi từ ${providerName}: ${obj.error.message}`;
       }
     }
   } catch {
     // ignore
   }
 
-  return msg ? msg : 'Lỗi không xác định khi kết nối OpenRouter, vui lòng thử lại.';
+  return msg ? msg : `Lỗi không xác định khi kết nối ${providerName}, vui lòng thử lại.`;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -200,6 +230,43 @@ export class OpenRouterClient {
     return (typeof process !== 'undefined' && (process.env['OPENROUTER_API_KEY'] || process.env['GEMINI_API_KEY'])) || '';
   }
 
+  private async getProviderRequestConfig(model: string): Promise<{ name: string; endpoint: string; apiKey: string; headers: Record<string, string> }> {
+    if (getProviderForModel(model) === '9router') {
+      const baseUrl = getNineRouterBaseUrl();
+      if (!isValidNineRouterBaseUrl(baseUrl)) {
+        throw new Error('9router chưa có Base URL hợp lệ. Vui lòng mở cấu hình API Key để thiết lập.');
+      }
+      await loadNineRouterApiKey();
+      const apiKey = getCachedNineRouterApiKey();
+      if (!apiKey) {
+        throw new Error('Chưa cấu hình 9router API Key. Vui lòng mở mục cài đặt API Key để thiết lập.');
+      }
+      return {
+        name: '9router',
+        endpoint: `${baseUrl}/chat/completions`,
+        apiKey,
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+      };
+    }
+
+    await loadSecureApiKey();
+    const apiKey = this.getApiKey();
+    if (!apiKey) {
+      throw new Error('Chưa cấu hình OpenRouter API Key. Vui lòng mở mục cài đặt API Key để thiết lập.');
+    }
+    return {
+      name: 'OpenRouter',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://silabook-opensky.wpsila.com',
+        'X-Title': 'silaBook openSky',
+        'Content-Type': 'application/json'
+      }
+    };
+  }
+
   private async loadPromptText(url: string): Promise<string | null> {
     const defaultOpts: RequestInit = { 
       cache: 'no-store',
@@ -223,11 +290,7 @@ export class OpenRouterClient {
     messages: { role: 'system' | 'user' | 'assistant'; content: string | unknown[] }[],
     options: { jsonMode?: boolean; temperature?: number } = {}
   ): Promise<string> {
-    await loadSecureApiKey();
-    const apiKey = this.getApiKey();
-    if (!apiKey) {
-      throw new Error('Chưa cấu hình OpenRouter API Key. Vui lòng mở mục cài đặt API Key để thiết lập.');
-    }
+    const provider = await this.getProviderRequestConfig(model);
 
     const reasoningEffort = getReasoningEffort();
     const payload: Record<string, unknown> = {
@@ -247,14 +310,9 @@ export class OpenRouterClient {
       payload['response_format'] = { type: 'json_object' };
     }
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const res = await fetch(provider.endpoint, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://silabook-opensky.wpsila.com',
-        'X-Title': 'silaBook openSky',
-        'Content-Type': 'application/json'
-      },
+      headers: provider.headers,
       body: JSON.stringify(payload)
     });
 
@@ -265,13 +323,13 @@ export class OpenRouterClient {
       } catch {
         errText = res.statusText;
       }
-      throw new Error(`OpenRouter HTTP ${res.status}: ${errText}`);
+      throw new Error(`${provider.name} HTTP ${res.status}: ${errText}`);
     }
 
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content;
     if (typeof content !== 'string') {
-      throw new Error('Phản hồi từ OpenRouter không hợp lệ hoặc bị rỗng.');
+      throw new Error(`Phản hồi từ ${provider.name} không hợp lệ hoặc bị rỗng.`);
     }
 
     return content;
